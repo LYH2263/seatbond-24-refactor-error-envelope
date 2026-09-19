@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.errors import not_found, seat_overlap, seats_unavailable
 from app.models.models import ConflictLog, Hall, SeatHold, Showtime
 from app.schemas.schemas import (
     ConflictOut,
@@ -68,7 +69,9 @@ def list_showtimes(db: Session = Depends(get_db)):
 def seatmap(showtime_id: int, db: Session = Depends(get_db)):
     st = db.get(Showtime, showtime_id)
     if not st:
-        raise HTTPException(404, "场次不存在")
+        raise not_found(
+            "showtime", "场次不存在", showtime_id=showtime_id
+        )
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
@@ -114,7 +117,9 @@ def list_conflicts(db: Session = Depends(get_db)):
 def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
     st = db.get(Showtime, body.showtime_id)
     if not st:
-        raise HTTPException(404, "场次不存在")
+        raise not_found(
+            "showtime", "场次不存在", showtime_id=body.showtime_id
+        )
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
@@ -142,7 +147,12 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
             )
         )
         db.commit()
-        raise HTTPException(409, "无足够连续空座")
+        raise seats_unavailable(
+            "无足够连续空座",
+            showtime_id=body.showtime_id,
+            party_size=body.party_size,
+            preferred_row=body.preferred_row,
+        )
 
     hits = conflicts_with(holds, block)
     if hits:
@@ -154,7 +164,14 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
             )
         )
         db.commit()
-        raise HTTPException(409, "与既有持座冲突")
+        raise seat_overlap(
+            "与既有持座冲突",
+            showtime_id=body.showtime_id,
+            party_size=body.party_size,
+            conflicting_holds=[
+                {"row": h.row, "start_col": h.start_col, "end_col": h.end_col} for h in hits
+            ],
+        )
 
     code = f"SB-{int(datetime.utcnow().timestamp()) % 100000:05d}"
     hold = SeatHold(

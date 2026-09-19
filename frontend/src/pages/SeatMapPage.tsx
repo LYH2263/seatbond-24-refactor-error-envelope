@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 
 type Show = { id: number; film_title: string; hall_name?: string };
 type Cell = { row: number; col: number; is_aisle: boolean; occupied: boolean; heat: number };
@@ -9,6 +9,7 @@ export default function SeatMapPage() {
   const [shows, setShows] = useState<Show[]>([]);
   const [sid, setSid] = useState<number | "">("");
   const [map, setMap] = useState<MapOut | null>(null);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     api<Show[]>("/showtimes").then((s) => {
@@ -19,7 +20,13 @@ export default function SeatMapPage() {
 
   useEffect(() => {
     if (sid === "") return;
-    api<MapOut>(`/seatmap/${sid}`).then(setMap);
+    setErr("");
+    setMap(null);
+    api<MapOut>(`/seatmap/${sid}`)
+      .then(setMap)
+      .catch((e: unknown) => {
+        setErr(e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e));
+      });
   }, [sid]);
 
   const gridStyle = useMemo(
@@ -47,6 +54,7 @@ export default function SeatMapPage() {
         )}
       </div>
       <div className="screen">银 幕</div>
+      {err && <div className="err">{err}</div>}
       {map && (
         <div className="seat-grid" style={gridStyle}>
           {map.cells.map((c) => (

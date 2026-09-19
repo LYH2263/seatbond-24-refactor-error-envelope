@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 
 type Show = { id: number; film_title: string; hall_name?: string };
 type Hold = {
@@ -10,6 +10,35 @@ type Hold = {
   end_col: number;
   party_size: number;
 };
+
+type ConflictingHold = { row: number; start_col: number; end_col: number };
+
+/** 依据错误包络的 code/details 生成对用户友好的冲突提示。 */
+function describeError(e: unknown): string {
+  if (!(e instanceof ApiError)) return e instanceof Error ? e.message : String(e);
+  const d = e.details as Record<string, unknown>;
+  const party = typeof d.party_size === "number" ? d.party_size : undefined;
+
+  switch (e.code) {
+    case "not_found":
+      return e.message || "场次不存在";
+    case "seats_unavailable":
+      return party ? `${e.message}：${party} 人连座已售罄，可减少人数或更换场次` : e.message;
+    case "seat_overlap": {
+      const hits = Array.isArray(d.conflicting_holds)
+        ? (d.conflicting_holds as ConflictingHold[])
+        : [];
+      const where = hits
+        .map((h) => `第${h.row}排 ${h.start_col}-${h.end_col}座`)
+        .join("、");
+      return where ? `${e.message}：所选座位与他人持座重叠（${where}），请重试` : e.message;
+    }
+    case "validation_error":
+      return "请求参数不合法，请检查人数（1-12）与场次";
+    default:
+      return e.message || "操作失败，请稍后重试";
+  }
+}
 
 export default function HoldPage() {
   const [shows, setShows] = useState<Show[]>([]);
@@ -37,7 +66,7 @@ export default function HoldPage() {
       setLast(hold);
       setMsg(`已锁座 ${hold.order_code}：第${hold.row}排 ${hold.start_col}-${hold.end_col}`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(describeError(e));
     }
   }
 

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.errors import register_error_handlers
 from app.services.seed import seed_if_empty
 
 
@@ -29,4 +30,5 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+register_error_handlers(app)
 app.include_router(api_router, prefix="/api")
