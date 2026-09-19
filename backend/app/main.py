@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.errors import register_error_handlers
 from app.services.seed import seed_if_empty
 
 
@@ -22,6 +23,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="SeatBond", version="0.1.0", lifespan=lifespan)
+register_error_handlers(app)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

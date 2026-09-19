@@ -1,10 +1,11 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.errors import ApiError, ErrorCode
 from app.models.models import ConflictLog, Hall, SeatHold, Showtime
 from app.schemas.schemas import (
     ConflictOut,
@@ -68,7 +69,12 @@ def list_showtimes(db: Session = Depends(get_db)):
 def seatmap(showtime_id: int, db: Session = Depends(get_db)):
     st = db.get(Showtime, showtime_id)
     if not st:
-        raise HTTPException(404, "场次不存在")
+        raise ApiError(
+            404,
+            ErrorCode.SHOWTIME_NOT_FOUND,
+            "场次不存在",
+            {"showtime_id": showtime_id},
+        )
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
@@ -114,7 +120,12 @@ def list_conflicts(db: Session = Depends(get_db)):
 def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
     st = db.get(Showtime, body.showtime_id)
     if not st:
-        raise HTTPException(404, "场次不存在")
+        raise ApiError(
+            404,
+            ErrorCode.SHOWTIME_NOT_FOUND,
+            "场次不存在",
+            {"showtime_id": body.showtime_id},
+        )
     hall = db.get(Hall, st.hall_id)
     assert hall
     aisles = set(_aisles(hall))
@@ -142,7 +153,16 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
             )
         )
         db.commit()
-        raise HTTPException(409, "无足够连续空座")
+        raise ApiError(
+            409,
+            ErrorCode.INSUFFICIENT_CONTIGUOUS_SEATS,
+            "无足够连续空座",
+            {
+                "reason": "insufficient_contiguous_seats",
+                "showtime_id": body.showtime_id,
+                "party_size": body.party_size,
+            },
+        )
 
     hits = conflicts_with(holds, block)
     if hits:
@@ -154,7 +174,18 @@ def create_hold(body: HoldRequest, db: Session = Depends(get_db)):
             )
         )
         db.commit()
-        raise HTTPException(409, "与既有持座冲突")
+        raise ApiError(
+            409,
+            ErrorCode.HOLD_OVERLAP,
+            "与既有持座冲突",
+            {
+                "reason": "overlap",
+                "showtime_id": body.showtime_id,
+                "row": hits[0].row,
+                "start_col": hits[0].start_col,
+                "end_col": hits[0].end_col,
+            },
+        )
 
     code = f"SB-{int(datetime.utcnow().timestamp()) % 100000:05d}"
     hold = SeatHold(
